@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>运动康复 - 商户管理端</title>
+    <!-- 引入 Supabase JS 库 (CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- 引入导出Excel库 -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- 配置文件（已内嵌） -->
+    <script>
+const CONFIG = {
+    SUPABASE_URL: 'https://unwtfmhaoextwuszyqwf.supabase.co',
+    SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVud3RmbWhhb2V4dHd1c3p5cXdmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI0MzczOTcsImV4cCI6MjA4ODAxMzM5N30.M_X0VHZmFkgdjy6RBua0E6mFPeesDUFXDSbgBZsjPAM',
+    SUPABASE_SERVICE_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVud3RmbWhhb2V4dHd1c3p5cXdmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjQzNzM5NywiZXhwIjoyMDg4MDEzMzk3fQ.29VJRu3gGfAxI6IRi6uCv-mjId6myEDTQcGg-dAMDH0',
+    ADMIN_PASSWORD: 'jk4s639',
+    BUSINESS_START_HOUR: 11,
+    BUSINESS_END_HOUR: 21,
+    CANCEL_MIN_HOURS: 6,
+    MONTHLY_CANCEL_LIMIT: 3,
+    PACKAGES: {
+        'A': { name: '套餐A', total: 8 },
+        'B': { name: '套餐B', total: 4 }
+    },
+    getTimeSlots: function() {
+        const slots = [];
+        for (let h = this.BUSINESS_START_HOUR; h < this.BUSINESS_END_HOUR; h++) {
+            slots.push(`${h.toString().padStart(2,'0')}:00-${(h+1).toString().padStart(2,'0')}:00`);
+        }
+        return slots;
+    }
+};
+    </script>
+    <style>
+        /* 通用样式 */
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+        body { background-color: #f5f7fa; color: #333; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        
+        /* 登录页样式 */
+        .login-box { background: white; max-width: 400px; margin: 100px auto; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; }
+        .login-box h1 { margin-bottom: 30px; color: #1890ff; }
+        input[type="password"], input[type="text"], input[type="date"], select, input[type="number"] {
+            width: 100%; padding: 12px; margin-bottom: 15px; border: 1px solid #d9d9d9; border-radius: 6px; font-size: 16px;
+        }
+        button { padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; transition: 0.3s; }
+        .btn-primary { background: #1890ff; color: white; width: 100%; }
+        .btn-primary:hover { background: #40a9ff; }
+
+        /* 主页面样式 */
+        .header { background: white; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 20px; border-radius: 8px; }
+        .header h2 { color: #1890ff; }
+        .header-right { display: flex; gap: 10px; }
+        .btn-sm { padding: 6px 12px; font-size: 14px; background: #52c41a; color: white; }
+        .btn-logout { background: #ff4d4f; }
+        .btn-schedule { background: #1890ff; }
+
+        /* 标签页 */
+        .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
+        .tab-btn { background: #e6f7ff; color: #1890ff; border: 1px solid #91d5ff; }
+        .tab-btn.active { background: #1890ff; color: white; }
+
+        /* 看板区域 */
+        .date-selector { margin-bottom: 20px; display: flex; align-items: center; gap: 15px; }
+        .time-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 15px; }
+        .time-slot { background: white; padding: 15px; border-radius: 8px; border-left: 5px solid #52c41a; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .time-slot.booked { border-left-color: #ff4d4f; }
+        .time-slot.empty { border-left-color: #d9d9d9; opacity: 0.7; }
+        .slot-time { font-weight: bold; font-size: 18px; margin-bottom: 5px; }
+        .slot-status { font-size: 12px; color: #52c41a; font-weight: bold; }
+        .slot-status.booked { color: #ff4d4f; }
+        .user-info { margin-top: 8px; font-size: 13px; line-height: 1.5; color: #666; border-top: 1px solid #f0f0f0; padding-top: 8px; }
+
+        /* 列表区域 */
+        .filter-bar { background: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #f0f0f0; }
+        th { background: #fafafa; font-weight: 600; }
+        tr:hover { background: #fafafa; }
+        .tag { padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+        .tag-pending { background: #e6f7ff; color: #1890ff; }
+        .tag-done { background: #f6ffed; color: #52c41a; }
+        .tag-cancel { background: #fff2f0; color: #ff4d4f; }
+        .btn-edit { background: #faad14; color: white; margin-right: 5px; padding: 4px 8px; font-size: 12px; }
+
+        /* 模态框 */
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background: white; padding: 30px; border-radius: 12px; width: 90%; max-width: 500px; }
+        .modal-content h3 { margin-bottom: 20px; }
+
+        /* 响应式 */
+        @media (max-width: 768px) {
+            .login-box { margin: 50px 20px; padding: 20px; }
+            .time-grid { grid-template-columns: repeat(2, 1fr); }
+            .filter-bar { flex-direction: column; align-items: stretch; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ================= 1. 登录页区域 ================= -->
+    <div id="loginPage" class="container">
+        <div class="login-box">
+            <h1>🏥 管理后台登录</h1>
+            <input type="password" id="adminPwdInput" placeholder="请输入管理员密码">
+            <button class="btn-primary" onclick="adminLogin()">登录</button>
+        </div>
+    </div>
+
+    <!-- ================= 2. 主管理页面区域 ================= -->
+    <div id="adminPage" class="container" style="display:none;">
+        <!-- 顶部栏 -->
+        <div class="header">
+            <h2>🏥 运动康复预约管理</h2>
+            <div class="header-right">
+                <button class="btn-sm btn-schedule" onclick="exportWeeklyExcel()">导出本周Excel</button>
+                <button class="btn-sm btn-logout" onclick="adminLogout()">退出</button>
+            </div>
+        </div>
+
+        <!-- 标签页切换 -->
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('board')">📅 实时看板</button>
+            <button class="tab-btn" onclick="switchTab('history')">📜 预约历史</button>
+            <button class="tab-btn" onclick="switchTab('users')">📋 用户管理</button>
+        </div>
+
+        <!-- ---------------- 看板页面 ---------------- -->
+        <div id="tab-board" class="tab-content">
+            <div class="date-selector">
+                <h3>选择日期查看：</h3>
+                <input type="date" id="boardDateSelect" onchange="loadBoard()">
+            </div>
+            <div id="timeGridContainer" class="time-grid">
+                <!-- 时段格子会在这里生成 -->
+            </div>
+        </div>
+
+        <!-- ---------------- 历史记录页面 ---------------- -->
+        <div id="tab-history" class="tab-content" style="display:none;">
+            <div class="filter-bar">
+                <label>开始日期:</label>
+                <input type="date" id="filterStartDate">
+                <label>结束日期:</label>
+                <input type="date" id="filterEndDate">
+                <label>用户姓名:</label>
+                <input type="text" id="filterName" placeholder="请输入姓名">
+                <button class="btn-sm btn-schedule" onclick="loadHistory()">查询</button>
+                <button class="btn-sm" style="background:#6c757d; color:white" onclick="loadHistory()">重置</button>
+            </div>
+            <div style="overflow-x:auto;">
+                <table id="historyTable">
+                    <thead>
+                        <tr>
+                            <th>预约日期</th>
+                            <th>时段</th>
+                            <th>用户姓名</th>
+                            <th>手机号</th>
+                            <th>课程标记</th>
+                            <th>状态</th>
+                        </tr>
+                    </thead>
+                    <tbody id="historyTbody">
+                        <!-- 数据会在这里生成 -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- ---------------- 用户管理页面 ---------------- -->
+        <div id="tab-users" class="tab-content" style="display:none;">
+            <div style="margin-bottom:20px;">
+                <button class="btn-sm" style="background:#1890ff; color:white" onclick="openAddUserModal()">➕ 新增用户</button>
+            </div>
+            <div style="overflow-x:auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>手机号</th>
+                            <th>姓名</th>
+                            <th>套餐</th>
+                            <th>剩余次数</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usersTbody">
+                        <!-- 数据会在这里生成 -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= 模态框：编辑/新增用户 ================= -->
+    <div id="userModal" class="modal">
+        <div class="modal-content">
+            <h3 id="modalTitle">编辑用户</h3>
+            <input type="hidden" id="userIdInput">
+            
+            <label>手机号 (11位)</label>
+            <input type="text" id="userPhoneInput" placeholder="请输入手机号" maxlength="11">
+            <label>姓名</label>
+            <input type="text" id="userNameInput" placeholder="请输入用户姓名">
+            <label>套餐类型</label>
+            <select id="userPackageSelect" onchange="document.getElementById('userSessionsInput').value = this.value === 'A' ? 8 : 4">
+                <option value="A">A套餐 (8次)</option>
+                <option value="B">B套餐 (4次)</option>
+            </select>
+            <label>剩余次数</label>
+            <input type="number" id="userSessionsInput" value="8">
+            
+            <div style="display:flex;gap:10px;margin-top:20px;">
+                <button onclick="saveUser()" style="flex:1;background:#28a745;color:white;padding:12px;">保存</button>
+                <button onclick="closeUserModal()" style="flex:1;background:#6c757d;color:white;padding:12px;">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= JS 逻辑区域 ================= -->
+    <script>
+        // 1. 初始化变量
+        let supabaseClient;
+        let isLoggedIn = false;
+        const TIME_SLOTS = [
+            "11:00-12:00", "12:00-13:00", "13:00-14:00", "14:00-15:00",
+            "15:00-16:00", "16:00-17:00", "17:00-18:00", "18:00-19:00",
+            "19:00-20:00", "20:00-21:00"
+        ];
+
+        // 页面加载完成后运行
+        document.addEventListener('DOMContentLoaded', function() {
+            // 检查配置文件
+            if (typeof CONFIG === 'undefined') {
+                alert("错误：找不到 config.js 文件！请确保三个文件在同一个文件夹里。");
+                return;
+            }
+            // 初始化 Supabase（用 service role key，绕过RLS查全部数据）
+            supabaseClient = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_SERVICE_KEY);
+
+            // 初始化看板日期为今天
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('boardDateSelect').value = today;
+            
+            // 检查本地缓存有没有登录状态
+            if (localStorage.getItem('admin_logged_in') === 'true') {
+                showAdminPage();
+            }
+        });
+
+        // ================= 登录/退出逻辑 =================
+        function adminLogin() {
+            const pwd = document.getElementById('adminPwdInput').value;
+            if (pwd === CONFIG.ADMIN_PASSWORD) {
+                localStorage.setItem('admin_logged_in', 'true');
+                alert('登录成功！');
+                showAdminPage();
+            } else {
+                alert('密码错误！');
+            }
+        }
+
+        function adminLogout() {
+            localStorage.removeItem('admin_logged_in');
+            document.getElementById('adminPage').style.display = 'none';
+            document.getElementById('loginPage').style.display = 'block';
+        }
+
+        function showAdminPage() {
+            document.getElementById('loginPage').style.display = 'none';
+            document.getElementById('adminPage').style.display = 'block';
+            loadBoard();
+            loadUsers();
+            // 开启实时监听（用户预约后自动刷新）
+            subscribeRealtime();
+        }
+
+        // ================= 标签页切换 =================
+        function switchTab(tabId) {
+            // 隐藏所有内容
+            document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            // 显示选中内容
+            document.getElementById('tab-' + tabId).style.display = 'block';
+            event.target.classList.add('active');
+            // 加载对应数据
+            if (tabId === 'history') loadHistory();
+            if (tabId === 'users') loadUsers();
+            if (tabId === 'board') loadBoard();
+        }
+
+        // ================= 看板逻辑 =================
+        async function loadBoard() {
+            const selectedDate = document.getElementById('boardDateSelect').value;
+            if (!selectedDate) return;
+
+            const container = document.getElementById('timeGridContainer');
+            container.innerHTML = '<p>加载中...</p>';
+
+            // 获取当天所有预约，并关联查询用户信息
+            const { data, error } = await supabaseClient
+                .from('appointments')
+                .select(`
+                    id, time_slot, status,
+                    users ( id, name, phone, package_type, remaining_sessions, total_sessions )
+                `)
+                .eq('appointment_date', selectedDate);
+
+            if (error) {
+                container.innerHTML = '<p>加载失败</p>';
+                console.error(error);
+                return;
+            }
+
+            container.innerHTML = '';
+            
+            // 遍历所有时段
+            TIME_SLOTS.forEach(slot => {
+                // 找这个时段有没有预约
+                const apt = data.find(d => d.time_slot === slot && d.status !== 'cancelled');
+                
+                const div = document.createElement('div');
+                div.className = 'time-slot ' + (apt ? 'booked' : 'empty');
+                
+                let content = `<div class="slot-time">${slot}</div>`;
+                
+                if (apt && apt.users) {
+                    // 计算是第几次课
+                    const total = apt.users.total_sessions || 0;
+                    const remain = apt.users.remaining_sessions || 0;
+                    const sessionNum = total - remain + 1; // 总次数-剩余次数=已用，再加1就是当前
+                    const courseTag = `${apt.users.package_type || 'A'}${sessionNum}`;
+
+                    content += `<div class="slot-status booked">已约</div>`;
+                    content += `
+                        <div class="user-info">
+                            <b>${apt.users.name}</b><br>
+                            📞 ${apt.users.phone}<br>
+                            🏷️ ${courseTag}
+                        </div>
+                    `;
+                } else {
+                    content += `<div class="slot-status">空闲</div>`;
+                }
+                
+                div.innerHTML = content;
+                container.appendChild(div);
+            });
+        }
+
+        // ================= 实时监听逻辑 =================
+        function subscribeRealtime() {
+            // 简单粗暴的实时：只要数据库有变动，就刷新看板
+            supabaseClient
+                .channel('public:appointments')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, payload => {
+                    console.log('收到数据变动，自动刷新');
+                    loadBoard();
+                    if (document.getElementById('tab-history').style.display !== 'none') loadHistory();
+                })
+                .subscribe();
+        }
+
+        // ================= 历史记录逻辑 =================
+        async function loadHistory() {
+            const tbody = document.getElementById('historyTbody');
+            tbody.innerHTML = '<tr><td colspan="6">加载中...</td></tr>';
+
+            let query = supabaseClient
+                .from('appointments')
+                .select(`
+                    id, appointment_date, time_slot, status,
+                    users ( id, name, phone, package_type, remaining_sessions, total_sessions )
+                `)
+                .order('appointment_date', { ascending: false })
+                .order('time_slot', { ascending: true });
+
+            // 筛选逻辑 (简化)
+            const name = document.getElementById('filterName').value;
+            if (name) {
+                // 注意：这里如果需要按用户姓名筛选，需要在Supabase建视图或者用contains，
+                // 简单起见，这里先只按日期排序，加载全部
+            }
+
+            const { data, error } = await query;
+
+            if (error) {
+                tbody.innerHTML = '<tr><td colspan="6">加载失败</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = '';
+            data.forEach(apt => {
+                const tr = document.createElement('tr');
+                const user = apt.users;
+                
+                // 计算课程标记
+                let courseTag = '-';
+                if(user) {
+                    const total = user.total_sessions || 0;
+                    const remain = user.remaining_sessions || 0;
+                    // 这里的计算逻辑：因为取消会加回，历史记录里的标记可能会动态变，
+                    // 这里我们简单显示一个固定的，或者显示当前的套餐类型
+                    courseTag = `${user.package_type || 'A'}套餐`; 
+                }
+
+                // 状态标签
+                let statusClass = 'tag-pending';
+                let statusText = '待履约';
+                if (apt.status === 'completed') { statusClass = 'tag-done'; statusText = '已完成'; }
+                if (apt.status === 'cancelled') { statusClass = 'tag-cancel'; statusText = '已取消'; }
+
+                tr.innerHTML = `
+                    <td>${apt.appointment_date}</td>
+                    <td>${apt.time_slot}</td>
+                    <td>${user ? user.name : '-'}</td>
+                    <td>${user ? user.phone : '-'}</td>
+                    <td>${courseTag}</td>
+                    <td><span class="tag ${statusClass}">${statusText}</span></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // ================= 用户管理逻辑 =================
+        async function loadUsers() {
+            const tbody = document.getElementById('usersTbody');
+            tbody.innerHTML = '<tr><td colspan="5">加载中...</td></tr>';
+
+            const { data, error } = await supabaseClient.from('users').select('*').order('created_at', { ascending: false });
+
+            if (error) {
+                tbody.innerHTML = '<tr><td colspan="5">加载失败</td></tr>';
+                console.error(error);
+                return;
+            }
+
+            tbody.innerHTML = '';
+            data.forEach(user => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${user.phone}</td>
+                    <td>${user.name}</td>
+                    <td>${user.package_type || 'A'}套餐</td>
+                    <td><b style="color:#1890ff">${user.remaining_sessions}</b> 次</td>
+                    <td><button class="btn-edit" onclick='openEditUserModal(${JSON.stringify(user).replace(/'/g, "\\'")})'>编辑</button></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // 打开新增用户模态框
+        function openAddUserModal() {
+            document.getElementById('modalTitle').innerText = '新增用户';
+            document.getElementById('userIdInput').value = '';
+            document.getElementById('userPhoneInput').value = '';
+            document.getElementById('userNameInput').value = '';
+            document.getElementById('userPackageSelect').value = 'A';
+            document.getElementById('userSessionsInput').value = 8;
+            document.getElementById('userModal').style.display = 'flex';
+        }
+
+        // 打开编辑用户模态框
+        function openEditUserModal(user) {
+            document.getElementById('modalTitle').innerText = '编辑用户';
+            document.getElementById('userIdInput').value = user.id;
+            document.getElementById('userPhoneInput').value = user.phone;
+            document.getElementById('userPhoneInput').readOnly = true; // 编辑时手机号不能改
+            document.getElementById('userNameInput').value = user.name;
+            document.getElementById('userPackageSelect').value = user.package_type || 'A';
+            document.getElementById('userSessionsInput').value = user.remaining_sessions;
+            document.getElementById('userModal').style.display = 'flex';
+        }
+
+        function closeUserModal() {
+            document.getElementById('userModal').style.display = 'none';
+            document.getElementById('userPhoneInput').readOnly = false; // 解锁
+        }
+
+        // 保存用户（核心逻辑）
+        async function saveUser() {
+            const userId = document.getElementById('userIdInput').value;
+            const phone = document.getElementById('userPhoneInput').value.trim();
+            const name = document.getElementById('userNameInput').value.trim();
+            const package_type = document.getElementById('userPackageSelect').value;
+            const remaining_sessions = parseInt(document.getElementById('userSessionsInput').value);
+            const total_sessions = remaining_sessions; // 编辑时暂时不动总次数，或者手动改，这里简化处理
+
+            if (!phone || !name) {
+                alert('请填写完整信息！');
+                return;
+            }
+
+            try {
+                if (userId) {
+                    // --- 编辑模式 ---
+                    const { error } = await supabaseClient
+                        .from('users')
+                        .update({ name, package_type, remaining_sessions })
+                        .eq('id', userId);
+                    if (error) throw error;
+                    alert('更新成功！');
+                } else {
+                    // --- 新增模式 ---
+                    
+                    // 1. 检查手机号格式
+                    if (phone.length !== 11) {
+                        alert('请输入11位正确的手机号！');
+                        return;
+                    }
+
+                    // 2. 调用 Supabase Admin API 自动创建 Auth 用户
+                    const createResp = await fetch(`${CONFIG.SUPABASE_URL}/auth/v1/admin/users`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'apikey': CONFIG.SUPABASE_SERVICE_KEY,
+                            'Authorization': `Bearer ${CONFIG.SUPABASE_SERVICE_KEY}`
+                        },
+                        body: JSON.stringify({
+                            email: phone + '@phone.local',
+                            email_confirm: true,
+                            password: phone.slice(-6),
+                            user_metadata: { name: name, phone: phone }
+                        })
+                    });
+
+                    const createData = await createResp.json();
+
+                    if (!createResp.ok) {
+                        const msg = createData.msg || createData.message || JSON.stringify(createData);
+                        if (msg.includes('already') || msg.includes('duplicate') || createResp.status === 422) {
+                            alert('错误：该手机号已存在 Auth 用户！');
+                        } else {
+                            alert('创建登录账号失败：' + msg);
+                        }
+                        return;
+                    }
+
+                    const authId = createData.id;
+
+                    // 3. 正式插入数据库
+                    const { error } = await supabaseClient
+                        .from('users')
+                        .insert({
+                            id: authId,
+                            phone: phone,
+                            name: name,
+                            package_type: package_type,
+                            remaining_sessions: remaining_sessions,
+                            total_sessions: total_sessions
+                        });
+
+                    if (error) {
+                        console.error(error);
+                        if (error.message.includes('duplicate')) {
+                            alert('错误：这个ID或者手机号已经存在了！请检查是否重复添加。');
+                        } else {
+                            alert('保存失败：' + error.message);
+                        }
+                        return;
+                    }
+                    
+                    alert(`新增用户成功！🎉\n默认登录密码：${phone.slice(-6)}（手机号后6位）`);
+                }
+
+                closeUserModal();
+                loadUsers();
+
+            } catch (e) {
+                alert('错误：' + e.message);
+            }
+        }
+
+        // ================= 导出Excel逻辑 (纵轴时间，横轴日期) =================
+        async function exportWeeklyExcel() {
+            // 1. 获取本周的日期范围
+            const today = new Date();
+            const day = today.getDay();
+            const diff = today.getDate() - day + (day === 0 ? -6 : 1);
+            const monday = new Date(today);
+            monday.setDate(diff);
+            monday.setHours(0,0,0,0);
+
+            const weekDates = [];
+            const weekDateStrings = [];
+            const weekDateKeys = []; // YYYY-MM-DD 格式，用于查库
+            for (let i = 0; i < 7; i++) {
+                const d = new Date(monday);
+                d.setDate(monday.getDate() + i);
+                weekDates.push(d);
+                const yyyy = d.getFullYear();
+                const m = (d.getMonth() + 1).toString().padStart(2, '0');
+                const dayNum = d.getDate().toString().padStart(2, '0');
+                weekDateKeys.push(`${yyyy}-${m}-${dayNum}`);
+                const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
+                weekDateStrings.push(`${m}-${dayNum} (周${weekDays[d.getDay()]})`);
+            }
+
+            // 2. 查询本周所有预约
+            const { data, error } = await supabaseClient
+                .from('appointments')
+                .select('appointment_date, time_slot, user_name, user_phone, session_index, status')
+                .in('appointment_date', weekDateKeys)
+                .neq('status', 'cancelled');
+
+            if (error) {
+                alert('查询数据失败：' + error.message);
+                return;
+            }
+
+            // 3. 建索引 { "2026-03-06_11:00-12:00": apt }
+            const aptMap = {};
+            if (data) data.forEach(a => {
+                aptMap[`${a.appointment_date}_${a.time_slot}`] = a;
+            });
+
+            // 4. 构建表头
+            const headers = ['时段'].concat(weekDateStrings);
+
+            // 5. 构建数据行
+            const rows = [];
+            TIME_SLOTS.forEach(slot => {
+                const row = [slot];
+                weekDateKeys.forEach(dateKey => {
+                    const apt = aptMap[`${dateKey}_${slot}`];
+                    if (apt) {
+                        row.push(`${apt.user_name} ${apt.user_phone} [${apt.session_index}]`);
+                    } else {
+                        row.push('');
+                    }
+                });
+                rows.push(row);
+            });
+
+            // 6. 创建工作簿
+            const wb = XLSX.utils.book_new();
+            const wsData = [headers].concat(rows);
+            const ws = XLSX.utils.aoa_to_sheet(wsData);
+            ws['!cols'] = [
+                { wch: 15 },
+                { wch: 20 }, { wch: 20 }, { wch: 20 },
+                { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }
+            ];
+
+            XLSX.utils.book_append_sheet(wb, ws, '本周预约表');
+            XLSX.writeFile(wb, `康复预约表_本周.xlsx`);
+            alert('导出成功！');
+        }
+    </script>
+</body>
+</html>
