@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>运动康复 - 商户管理端</title>
+    <!-- 引入 Supabase JS 库 (CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- 引入导出Excel库 -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+    <!-- 配置文件（已内嵌） -->
+    <script>
+const CONFIG = {
+    SUPABASE_URL: 'https://unwtfmhaoextwuszyqwf.supabase.co',
+    SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVud3RmbWhhb2V4dHd1c3p5cXdmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI0MzczOTcsImV4cCI6MjA4ODAxMzM5N30.M_X0VHZmFkgdjy6RBua0E6mFPeesDUFXDSbgBZsjPAM',
+    SUPABASE_SERVICE_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVud3RmbWhhb2V4dHd1c3p5cXdmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjQzNzM5NywiZXhwIjoyMDg4MDEzMzk3fQ.29VJRu3gGfAxI6IRi6uCv-mjId6myEDTQcGg-dAMDH0',
+    ADMIN_PASSWORD: 'jk4s639',
+    BUSINESS_START_HOUR: 11,
+    BUSINESS_END_HOUR: 21,
+    CANCEL_MIN_HOURS: 6,
+    MONTHLY_CANCEL_LIMIT: 3,
+    PACKAGES: {
+        'A': { name: '套餐A', total: 8 },
+        'B': { name: '套餐B', total: 4 }
+    },
+    getTimeSlots: function() {
+        const slots = [];
+        for (let h = this.BUSINESS_START_HOUR; h < this.BUSINESS_END_HOUR; h++) {
+            slots.push(`${h.toString().padStart(2,'0')}:00-${(h+1).toString().padStart(2,'0')}:00`);
+        }
+        return slots;
+    }
+};
+    </script>
+    <style>
+        /* 通用样式 */
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+        body { background-color: #f5f7fa; color: #333; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        
+        /* 登录页样式 */
+        .login-box { background: white; max-width: 400px; margin: 100px auto; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; }
+        .login-box h1 { margin-bottom: 30px; color: #1890ff; }
+        input[type="password"], input[type="text"], input[type="date"], select, input[type="number"] {
+            width: 100%; padding: 12px; margin-bottom: 15px; border: 1px solid #d9d9d9; border-radius: 6px; font-size: 16px;
+        }
+        button { padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; transition: 0.3s; }
+        .btn-primary { background: #1890ff; color: white; width: 100%; }
+        .btn-primary:hover { background: #40a9ff; }
+
+        /* 主页面样式 */
+        .header { background: white; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 20px; border-radius: 8px; }
+        .header h2 { color: #1890ff; }
+        .header-right { display: flex; gap: 10px; }
+        .btn-sm { padding: 6px 12px; font-size: 14px; background: #52c41a; color: white; }
+        .btn-logout { background: #ff4d4f; }
+        .btn-schedule { background: #1890ff; }
+
+        /* 标签页 */
+        .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
+        .tab-btn { background: #e6f7ff; color: #1890ff; border: 1px solid #91d5ff; }
+        .tab-btn.active { background: #1890ff; color: white; }
+
+        /* 看板区域 */
+        .date-selector { margin-bottom: 20px; display: flex; align-items: center; gap: 15px; }
+        .time-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 15px; }
+        .time-slot { background: white; padding: 15px; border-radius: 8px; border-left: 5px solid #52c41a; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .time-slot.booked { border-left-color: #ff4d4f; }
+        .time-slot.empty { border-left-color: #d9d9d9; opacity: 0.7; }
+        .slot-time { font-weight: bold; font-size: 18px; margin-bottom: 5px; }
+        .slot-status { font-size: 12px; color: #52c41a; font-weight: bold; }
+        .slot-status.booked { color: #ff4d4f; }
+        .user-info { margin-top: 8px; font-size: 13px; line-height: 1.5; color: #666; border-top: 1px solid #f0f0f0; padding-top: 8px; }
+
+        /* 列表区域 */
+        .filter-bar { background: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #f0f0f0; }
+        th { background: #fafafa; font-weight: 600; }
+        tr:hover { background: #fafafa; }
+        .tag { padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+        .tag-pending { background: #e6f7ff; color: #1890ff; }
+        .tag-done { background: #f6ffed; color: #52c41a; }
+        .tag-cancel { background: #fff2f0; color: #ff4d4f; }
+        .btn-edit { background: #faad14; color: white; margin-right: 5px; padding: 4px 8px; font-size: 12px; }
+
+        /* 模态框 */
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background: white; padding: 30px; border-radius: 12px; width: 90%; max-width: 500px; }
+        .modal-content h3 { margin-bottom: 20px; }
+
+        /* 响应式 */
+        @media (max-width: 768px) {
+            .login-box { margin: 50px 20px; padding: 20px; }
+            .time-grid { grid-template-columns: repeat(2, 1fr); }
+            .filter-bar { flex-direction: column; align-items: stretch; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ================= 1. 登录页区域 ================= -->
+    <div id="loginPage" class="container">
+        <div class="login-box">
+            <h1>🏥 管理后台登录</h1>
+            <input type="password" id="adminPwdInput" placeholder="请输入管理员密码">
+            <button class="btn-primary" onclick="adminLogin()">登录</button>
+        </div>
+    </div>
+
+    <!-- ================= 2. 主管理页面区域 ================= -->
+    <div id="adminPage" class="container" style="display:none;">
+        <!-- 顶部栏 -->
+        <div class="header">
+            <h2>🏥 运动康复预约管理</h2>
+            <div class="header-right">
+                <button class="btn-sm btn-schedule" onclick="exportWeeklyExcel()">导出本周Excel</button>
+                <button class="btn-sm btn-logout" onclick="adminLogout()">退出</button>
+            </div>
+        </div>
+
+        <!-- 标签页切换 -->
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('board')">📅 实时看板</button>
+            <button class="tab-btn" onclick="switchTab('history')">📜 预约历史</button>
+            <button class="tab-btn" onclick="switchTab('review')">🔔 待审核 <span id="reviewBadge" style="display:none;background:#ff4d4f;color:white;border-radius:10px;padding:1px 6px;font-size:12px;margin-left:4px;">0</span></button>
+            <button class="tab-btn" onclick="switchTab('users')">📋 用户管理</button>
+        </div>
+
+        <!-- ---------------- 看板页面 ---------------- -->
+        <div id="tab-board" class="tab-content">
+            <div class="date-selector">
+                <h3>选择日期查看：</h3>
+                <input type="date" id="boardDateSelect" onchange="loadBoard()">
+            </div>
+            <div id="timeGridContainer" class="time-grid">
+                <!-- 时段格子会在这里生成 -->
+            </div>
+        </div>
+
+        <!-- ---------------- 待审核页面 ---------------- -->
+        <div id="tab-review" class="tab-content" style="display:none;">
+            <div style="overflow-x:auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>姓名</th>
+                            <th>手机号</th>
+                            <th>备注</th>
+                            <th>登记时间</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="reviewTbody">
+                    </tbody>
+                </table>
+                <div id="reviewEmpty" style="text-align:center;padding:40px;color:#999;display:none;">暂无待审核登记</div>
+            </div>
+        </div>
+
+        <!-- ---------------- 历史记录页面 ---------------- -->
+        <div id="tab-history" class="tab-content" style="display:none;">
+            <div class="filter-bar">
+                <label>开始日期:</label>
+                <input type="date" id="filterStartDate">
+                <label>结束日期:</label>
+                <input type="date" id="filterEndDate">
+                <label>用户姓名:</label>
+                <input type="text" id="filterName" placeholder="请输入姓名">
+                <button class="btn-sm btn-schedule" onclick="loadHistory()">查询</button>
+                <button class="btn-sm" style="background:#6c757d; color:white" onclick="loadHistory()">重置</button>
+            </div>
+            <div style="overflow-x:auto;">
+                <table id="historyTable">
+                    <thead>
+                        <tr>
+                            <th>预约日期</th>
+                            <th>时段</th>
+                            <th>用户姓名</th>
+                            <th>手机号</th>
+                            <th>课程标记</th>
+                            <th>状态</th>
+                        </tr>
+                    </thead>
+                    <tbody id="historyTbody">
+                        <!-- 数据会在这里生成 -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- ---------------- 用户管理页面 ---------------- -->
+        <div id="tab-users" class="tab-content" style="display:none;">
+            <div style="margin-bottom:20px;">
+                <button class="btn-sm" style="background:#1890ff; color:white" onclick="openAddUserModal()">➕ 新增用户</button>
+            </div>
+            <div style="overflow-x:auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>手机号</th>
+                            <th>姓名</th>
+                            <th>套餐</th>
+                            <th>剩余次数</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usersTbody">
+                        <!-- 数据会在这里生成 -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= 模态框：编辑/新增用户 ================= -->
+    <div id="userModal" class="modal">
+        <div class="modal-content">
+            <h3 id="modalTitle">编辑用户</h3>
+            <input type="hidden" id="userIdInput">
+            
+            <label>手机号 (11位)</label>
+            <input type="text" id="userPhoneInput" placeholder="请输入手机号" maxlength="11">
+            <label>姓名</label>
+            <input type="text" id="userNameInput" placeholder="请输入用户姓名">
+            <label>套餐类型</label>
+            <select id="userPackageSelect" onchange="const v=this.value; document.getElementById('userSessionsInput').value = v==='A'?8:v==='B'?4:1">
+                <option value="EVAL">首次评估 (1次)</option>
+                <option value="A">A套餐 (8次)</option>
+                <option value="B">B套餐 (4次)</option>
+            </select>
+            <label>剩余次数</label>
+            <input type="number" id="userSessionsInput" value="8">
+            
+            <div style="display:flex;gap:10px;margin-top:20px;">
+                <button onclick="saveUser()" style="flex:1;background:#28a745;color:white;padding:12px;">保存</button>
+                <button onclick="closeUserModal()" style="flex:1;background:#6c757d;color:white;padding:12px;">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= 模态框：审核通过 ================= -->
+    <div id="reviewModal" class="modal">
+        <div class="modal-content">
+            <h3>✅ 审核通过 - 完善信息</h3>
+            <input type="hidden" id="reviewIdInput">
+            <input type="hidden" id="reviewPhoneHidden">
+            <input type="hidden" id="reviewNameHidden">
+            <div style="background:#e6f7ff;padding:10px;border-radius:6px;margin:15px 0;font-size:14px;">
+                <b>姓名：</b><span id="reviewNameLabel"></span><br>
+                <b>手机号：</b><span id="reviewPhoneLabel"></span>
+            </div>
+            <label>套餐类型</label>
+            <select id="reviewPackageSelect" onchange="const v=this.value; document.getElementById('reviewSessionsInput').value = v==='A'?8:v==='B'?4:1">
+                <option value="EVAL">首次评估 (1次)</option>
+                <option value="A">A套餐 (8次)</option>
+                <option value="B">B套餐 (4次)</option>
+            </select>
+            <label>初始次数</label>
+            <input type="number" id="reviewSessionsInput" value="8">
+            <div style="display:flex;gap:10px;margin-top:20px;">
+                <button onclick="approveReview()" style="flex:1;background:#52c41a;color:white;padding:12px;border:none;border-radius:6px;cursor:pointer;font-size:16px;">✅ 确认通过</button>
+                <button onclick="rejectReview()" style="flex:1;background:#ff4d4f;color:white;padding:12px;border:none;border-radius:6px;cursor:pointer;font-size:16px;">❌ 拒绝</button>
+                <button onclick="closeReviewModal()" style="flex:1;background:#6c757d;color:white;padding:12px;border:none;border-radius:6px;cursor:pointer;font-size:16px;">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= JS 逻辑区域 ================= -->
+    <script>
+        // 1. 初始化变量
+        let supabaseClient;
+        let isLoggedIn = false;
+        // 生成30分钟时间格
+        const TIME_SLOTS = [];
+        for (let h = 11; h < 21; h++) {
+            TIME_SLOTS.push(`${String(h).padStart(2,'0')}:00`);
+            TIME_SLOTS.push(`${String(h).padStart(2,'0')}:30`);
+        }
+        // 工具：获取某格结束时间
+        function slotEndTime(slot) {
+            const [h,m] = slot.split(':').map(Number);
+            const total = h*60+m+30;
+            return `${String(Math.floor(total/60)).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`;
+        }
+
+        // 将 '11:00+11:30' 转为 '11:00-12:00'，单格转为 '11:00-11:30'
+        function formatTimeSlot(timeSlot) {
+            const slots = timeSlot.split('+').map(s => s.trim());
+            const start = slots[0];
+            const end = slotEndTime(slots[slots.length - 1]);
+            return `${start}-${end}`;
+        }
+
+        // 页面加载完成后运行
+        document.addEventListener('DOMContentLoaded', function() {
+            // 检查配置文件
+            if (typeof CONFIG === 'undefined') {
+                alert("错误：找不到 config.js 文件！请确保三个文件在同一个文件夹里。");
+                return;
+            }
+            // 初始化 Supabase（用 service role key，绕过RLS查全部数据）
+            supabaseClient = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_SERVICE_KEY);
+
+            // 初始化看板日期为今天
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('boardDateSelect').value = today;
+            
+            // 检查本地缓存有没有登录状态
+            if (localStorage.getItem('admin_logged_in') === 'true') {
+                showAdminPage();
+            }
+        });
+
+        // ================= 登录/退出逻辑 =================
+        function adminLogin() {
+            const pwd = document.getElementById('adminPwdInput').value;
+            if (pwd === CONFIG.ADMIN_PASSWORD) {
+                localStorage.setItem('admin_logged_in', 'true');
+                alert('登录成功！');
+                showAdminPage();
+            } else {
+                alert('密码错误！');
+            }
+        }
+
+        function adminLogout() {
+            localStorage.removeItem('admin_logged_in');
+            document.getElementById('adminPage').style.display = 'none';
+            document.getElementById('loginPage').style.display = 'block';
+        }
+
+        function showAdminPage() {
+            document.getElementById('loginPage').style.display = 'none';
+            document.getElementById('adminPage').style.display = 'block';
+            loadBoard();
+            loadUsers();
+            loadReviewCount();
+            // 开启实时监听（用户预约后自动刷新）
+            subscribeRealtime();
+        }
+
+        // ================= 标签页切换 =================
+        function switchTab(tabId) {
+            // 隐藏所有内容
+            document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            // 显示选中内容
+            document.getElementById('tab-' + tabId).style.display = 'block';
+            event.target.classList.add('active');
+            // 加载对应数据
+            if (tabId === 'history') loadHistory();
+            if (tabId === 'users') loadUsers();
+            if (tabId === 'board') loadBoard();
+            if (tabId === 'review') loadReview();
+        }
+
+        // ================= 看板逻辑 =================
+        async function loadBoard() {
+            const selectedDate = document.getElementById('boardDateSelect').value;
+            if (!selectedDate) return;
+
+            const container = document.getElementById('timeGridContainer');
+            container.innerHTML = '<p>加载中...</p>';
+
+            // 获取当天所有预约，并关联查询用户信息
+            const { data, error } = await supabaseClient
+                .from('appointments')
+                .select(`
+                    id, time_slot, status,
+                    users ( id, name, phone, package_type, remaining_sessions, total_sessions )
+                `)
+                .eq('appointment_date', selectedDate);
+
+            if (error) {
+                container.innerHTML = '<p>加载失败</p>';
+                console.error(error);
+                return;
+            }
+
+            container.innerHTML = '';
+            
+            // 遍历所有时段（30分钟格）
+            const now = new Date();
+            const selectedDateStr = document.getElementById('boardDateSelect').value;
+
+            // 建立占用索引：{ '11:00': apt, '11:30': apt, ... }
+            const slotAptMap = {};
+            data.forEach(apt => {
+                if (apt.status === 'cancelled') return;
+                apt.time_slot.split('+').forEach(s => slotAptMap[s.trim()] = apt);
+            });
+            // 已渲染的预约ID，避免重复显示
+            const renderedApts = new Set();
+
+            TIME_SLOTS.forEach(slot => {
+                const apt = slotAptMap[slot];
+                const div = document.createElement('div');
+                div.className = 'time-slot ' + (apt ? 'booked' : 'empty');
+
+                let cellContent = `<div class="slot-time" style="font-size:13px;">${slot}-${slotEndTime(slot)}</div>`;
+
+                if (apt) {
+                    const slots = apt.time_slot.split('+').map(s=>s.trim());
+                    const endSlot = slots[slots.length-1];
+                    const endTime = slotEndTime(endSlot);
+                    const slotStart = new Date(`${selectedDateStr} ${slots[0]}:00`);
+                    const slotEnd = new Date(`${selectedDateStr} ${endTime}:00`);
+                    const isOngoing = apt.status === 'pending' && now >= slotStart && now < slotEnd;
+                    const isEnded = now >= slotEnd;
+
+                    let statusLabel = apt.status === 'completed' ? '✅ 已完成' : (isOngoing ? '🟢 进行中' : '已约');
+                    cellContent += `<div class="slot-status booked" style="font-size:11px;">${statusLabel}</div>`;
+
+                    // 只在第一格显示详情和按钮
+                    if (!renderedApts.has(apt.id)) {
+                        renderedApts.add(apt.id);
+                        const total = apt.users ? apt.users.total_sessions || 0 : 0;
+                        const remain = apt.users ? apt.users.remaining_sessions || 0 : 0;
+                        const sessionNum = total - remain + 1;
+                        const courseTag = apt.session_index || `${apt.users?.package_type||''}${sessionNum}`;
+                        cellContent += `<div class="user-info" style="font-size:12px;">
+                            <b>${apt.users?.name||''}</b><br>
+                            📞 ${apt.users?.phone||''}<br>
+                            🏷️ ${courseTag} · ${slots.length===1?'30分钟':'60分钟'}
+                        </div>`;
+                        if (apt.status === 'pending') {
+                            cellContent += `<div style="display:flex;gap:3px;margin-top:6px;">
+                                ${isEnded ? `<button onclick="markCompleted('${apt.id}')" style="flex:1;padding:3px 0;background:#52c41a;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px;">✔ 完成</button>` : ''}
+                                <button onclick="adminCancelAppointment('${apt.id}')" style="flex:1;padding:3px 0;background:#ff4d4f;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px;">✖ 取消</button>
+                            </div>`;
+                        }
+                    // 第二格复制相同信息
+                    } else {
+                        const slots = apt.time_slot.split('+').map(s=>s.trim());
+                        const endSlot = slots[slots.length-1];
+                        const endTime = slotEndTime(endSlot);
+                        const slotStart = new Date(`${selectedDateStr} ${slots[0]}:00`);
+                        const slotEnd = new Date(`${selectedDateStr} ${endTime}:00`);
+                        const isOngoing = apt.status === 'pending' && now >= slotStart && now < slotEnd;
+                        let statusLabel = apt.status === 'completed' ? '✅ 已完成' : (isOngoing ? '🟢 进行中' : '已约');
+                        cellContent += `<div class="slot-status booked" style="font-size:11px;">${statusLabel}</div>`;
+                        const total = apt.users ? apt.users.total_sessions || 0 : 0;
+                        const remain = apt.users ? apt.users.remaining_sessions || 0 : 0;
+                        const sessionNum = total - remain + 1;
+                        const courseTag = apt.session_index || `${apt.users?.package_type||''}${sessionNum}`;
+                        cellContent += `<div class="user-info" style="font-size:12px;">
+                            <b>${apt.users?.name||''}</b><br>
+                            📞 ${apt.users?.phone||''}<br>
+                            🏷️ ${courseTag} · 60分钟
+                        </div>`;
+                    }
+                } else {
+                    cellContent += `<div class="slot-status">空闲</div>`;
+                }
+
+                div.innerHTML = cellContent;
+                container.appendChild(div);
+            });
+        }
+
+        // ================= 实时监听逻辑 =================
+        function subscribeRealtime() {
+            // 简单粗暴的实时：只要数据库有变动，就刷新看板
+            supabaseClient
+                .channel('public:appointments')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, payload => {
+                    console.log('收到数据变动，自动刷新');
+                    loadBoard();
+                    if (document.getElementById('tab-history').style.display !== 'none') loadHistory();
+                })
+                .subscribe();
+        }
+
+        // ================= 标记完成 =================
+        async function markCompleted(aptId) {
+            if (!confirm('确认标记该课程为已完成？')) return;
+            try {
+                const { error } = await supabaseClient
+                    .from('appointments')
+                    .update({ status: 'completed' })
+                    .eq('id', aptId);
+                if (error) throw error;
+                alert('已标记为完成！');
+                loadBoard();
+            } catch (e) {
+                alert('操作失败：' + e.message);
+            }
+        }
+
+        async function adminCancelAppointment(aptId) {
+            if (!confirm('确认取消该预约？\n次数将自动返还给用户。')) return;
+            try {
+                // 1. 获取预约详情
+                const { data: apt, error: fetchErr } = await supabaseClient
+                    .from('appointments')
+                    .select('user_id, session_index')
+                    .eq('id', aptId)
+                    .single();
+                if (fetchErr) throw fetchErr;
+
+                // 2. 取消预约
+                const { error: cancelErr } = await supabaseClient
+                    .from('appointments')
+                    .update({ status: 'cancelled' })
+                    .eq('id', aptId);
+                if (cancelErr) throw cancelErr;
+
+                // 3. 返还次数，移除 session_index
+                const { data: user, error: userFetchErr } = await supabaseClient
+                    .from('users')
+                    .select('remaining_sessions, used_session_indices')
+                    .eq('id', apt.user_id)
+                    .single();
+                if (userFetchErr) throw userFetchErr;
+
+                const newRemaining = (user.remaining_sessions || 0) + 1;
+                const newUsedIndices = (user.used_session_indices || []).filter(i => i !== apt.session_index);
+
+                const { error: updateErr } = await supabaseClient
+                    .from('users')
+                    .update({ remaining_sessions: newRemaining, used_session_indices: newUsedIndices })
+                    .eq('id', apt.user_id);
+                if (updateErr) throw updateErr;
+
+                alert('已取消，次数已返还给用户。');
+                loadBoard();
+            } catch (e) {
+                alert('操作失败：' + e.message);
+            }
+        }
+
+        // ================= 历史记录逻辑 =================
+        async function loadHistory() {
+            const tbody = document.getElementById('historyTbody');
+            tbody.innerHTML = '<tr><td colspan="6">加载中...</td></tr>';
+
+            let query = supabaseClient
+                .from('appointments')
+                .select(`
+                    id, appointment_date, time_slot, status,
+                    users ( id, name, phone, package_type, remaining_sessions, total_sessions )
+                `)
+                .order('appointment_date', { ascending: false })
+                .order('time_slot', { ascending: true });
+
+            // 筛选逻辑 (简化)
+            const name = document.getElementById('filterName').value;
+            if (name) {
+                // 注意：这里如果需要按用户姓名筛选，需要在Supabase建视图或者用contains，
+                // 简单起见，这里先只按日期排序，加载全部
+            }
+
+            const { data, error } = await query;
+
+            if (error) {
+                tbody.innerHTML = '<tr><td colspan="6">加载失败</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = '';
+            data.forEach(apt => {
+                const tr = document.createElement('tr');
+                const user = apt.users;
+                
+                // 计算课程标记
+                let courseTag = '-';
+                if(user) {
+                    const total = user.total_sessions || 0;
+                    const remain = user.remaining_sessions || 0;
+                    // 这里的计算逻辑：因为取消会加回，历史记录里的标记可能会动态变，
+                    // 这里我们简单显示一个固定的，或者显示当前的套餐类型
+                    courseTag = `${user.package_type || 'A'}套餐`; 
+                }
+
+                // 状态标签
+                let statusClass = 'tag-pending';
+                let statusText = '待履约';
+                if (apt.status === 'completed') { statusClass = 'tag-done'; statusText = '已完成'; }
+                if (apt.status === 'cancelled') { statusClass = 'tag-cancel'; statusText = '已取消'; }
+
+                tr.innerHTML = `
+                    <td>${apt.appointment_date}</td>
+                    <td>${formatTimeSlot(apt.time_slot)}</td>
+                    <td>${user ? user.name : '-'}</td>
+                    <td>${user ? user.phone : '-'}</td>
+                    <td>${courseTag}</td>
+                    <td><span class="tag ${statusClass}">${statusText}</span></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // ================= 待审核逻辑 =================
+        async function loadReviewCount() {
+            const { count } = await supabaseClient
+                .from('registrations')
+                .select('*', { count: 'exact', head: true })
+                .eq('status', 'pending');
+            const badge = document.getElementById('reviewBadge');
+            if (count && count > 0) {
+                badge.style.display = 'inline';
+                badge.innerText = count;
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+
+        async function loadReview() {
+            const tbody = document.getElementById('reviewTbody');
+            const empty = document.getElementById('reviewEmpty');
+            tbody.innerHTML = '<tr><td colspan="5">加载中...</td></tr>';
+
+            const { data, error } = await supabaseClient
+                .from('registrations')
+                .select('*')
+                .eq('status', 'pending')
+                .order('created_at', { ascending: true });
+
+            if (error || !data || data.length === 0) {
+                tbody.innerHTML = '';
+                empty.style.display = 'block';
+                return;
+            }
+
+            empty.style.display = 'none';
+            tbody.innerHTML = '';
+            data.forEach(reg => {
+                const tr = document.createElement('tr');
+                const time = new Date(reg.created_at).toLocaleString('zh-CN', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+                tr.innerHTML = `
+                    <td><b>${reg.name}</b></td>
+                    <td>${reg.phone}</td>
+                    <td style="max-width:150px;color:#666;font-size:13px;">${reg.remark || '-'}</td>
+                    <td style="font-size:13px;color:#999;">${time}</td>
+                    <td><button class="btn-edit" onclick='openReviewModal(${JSON.stringify(reg)})'>处理</button></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function openReviewModal(reg) {
+            document.getElementById('reviewIdInput').value = reg.id;
+            document.getElementById('reviewPhoneHidden').value = reg.phone;
+            document.getElementById('reviewNameHidden').value = reg.name;
+            document.getElementById('reviewNameLabel').innerText = reg.name;
+            document.getElementById('reviewPhoneLabel').innerText = reg.phone;
+            document.getElementById('reviewPackageSelect').value = 'A';
+            document.getElementById('reviewSessionsInput').value = 8;
+            document.getElementById('reviewModal').style.display = 'flex';
+        }
+
+        function closeReviewModal() {
+            document.getElementById('reviewModal').style.display = 'none';
+        }
+
+        async function approveReview() {
+            const regId = document.getElementById('reviewIdInput').value;
+            const phone = document.getElementById('reviewPhoneHidden').value;
+            const name = document.getElementById('reviewNameHidden').value;
+            const package_type = document.getElementById('reviewPackageSelect').value;
+            const sessions = parseInt(document.getElementById('reviewSessionsInput').value);
+
+            try {
+                // 1. 创建 Auth 用户
+                const createResp = await fetch(`${CONFIG.SUPABASE_URL}/auth/v1/admin/users`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': CONFIG.SUPABASE_SERVICE_KEY,
+                        'Authorization': `Bearer ${CONFIG.SUPABASE_SERVICE_KEY}`
+                    },
+                    body: JSON.stringify({
+                        email: phone + '@phone.local',
+                        email_confirm: true,
+                        password: phone.slice(-4),
+                        user_metadata: { name, phone }
+                    })
+                });
+                const createData = await createResp.json();
+                if (!createResp.ok) throw new Error(createData.msg || createData.message || '创建账号失败');
+
+                const authId = createData.id;
+
+                // 2. 写入 users 表
+                const { error: userErr } = await supabaseClient
+                    .from('users')
+                    .insert({ id: authId, phone, name, package_type, remaining_sessions: sessions, total_sessions: sessions });
+                if (userErr) throw userErr;
+
+                // 3. 更新登记状态为已通过
+                const { error: regErr } = await supabaseClient
+                    .from('registrations')
+                    .update({ status: 'approved' })
+                    .eq('id', regId);
+                if (regErr) throw regErr;
+
+                alert(`审核通过！\n${name} 的账号已创建\n默认登录密码：${phone.slice(-4)}`);
+                closeReviewModal();
+                loadReview();
+                loadReviewCount();
+                loadUsers();
+
+            } catch (e) {
+                alert('操作失败：' + e.message);
+            }
+        }
+
+        async function rejectReview() {
+            if (!confirm('确认拒绝该登记申请？')) return;
+            const regId = document.getElementById('reviewIdInput').value;
+            try {
+                const { error } = await supabaseClient
+                    .from('registrations')
+                    .update({ status: 'rejected' })
+                    .eq('id', regId);
+                if (error) throw error;
+                alert('已拒绝该申请。');
+                closeReviewModal();
+                loadReview();
+                loadReviewCount();
+            } catch (e) {
+                alert('操作失败：' + e.message);
+            }
+        }
+
+        // ================= 用户管理逻辑 =================
+        async function loadUsers() {
+            const tbody = document.getElementById('usersTbody');
+            tbody.innerHTML = '<tr><td colspan="5">加载中...</td></tr>';
+
+            const { data, error } = await supabaseClient.from('users').select('*').order('created_at', { ascending: false });
+
+            if (error) {
+                tbody.innerHTML = '<tr><td colspan="5">加载失败</td></tr>';
+                console.error(error);
+                return;
+            }
+
+            tbody.innerHTML = '';
+            data.forEach(user => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${user.phone}</td>
+                    <td>${user.name}</td>
+                    <td>${user.package_type === 'EVAL' ? '首次评估' : (user.package_type || 'A') + '套餐'}</td>
+                    <td><b style="color:#1890ff">${user.remaining_sessions}</b> 次</td>
+                    <td>
+                        <button class="btn-edit" onclick='openEditUserModal(${JSON.stringify(user).replace(/'/g, "\\'")})'>编辑</button>
+                        <button class="btn-edit" style="background:#ff4d4f;" onclick='deleteUser("${user.id}", "${user.name}")'>删除</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // 删除用户
+        async function deleteUser(userId, userName) {
+            if (!confirm(`确认删除用户「${userName}」？\n该用户的所有预约记录也会一并删除，此操作不可撤销。`)) return;
+            try {
+                // 同时删除 Auth 账号
+                const delResp = await fetch(`${CONFIG.SUPABASE_URL}/auth/v1/admin/users/${userId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'apikey': CONFIG.SUPABASE_SERVICE_KEY,
+                        'Authorization': `Bearer ${CONFIG.SUPABASE_SERVICE_KEY}`
+                    }
+                });
+                if (!delResp.ok && delResp.status !== 404) {
+                    const err = await delResp.json();
+                    throw new Error(err.msg || '删除账号失败');
+                }
+                // users 表因为 ON DELETE CASCADE 会自动删除关联数据
+                const { error } = await supabaseClient.from('users').delete().eq('id', userId);
+                if (error) throw error;
+                alert(`用户「${userName}」已删除。`);
+                loadUsers();
+            } catch (e) {
+                alert('删除失败：' + e.message);
+            }
+        }
+
+        // 打开新增用户模态框
+        function openAddUserModal() {
+            document.getElementById('modalTitle').innerText = '新增用户';
+            document.getElementById('userIdInput').value = '';
+            document.getElementById('userPhoneInput').value = '';
+            document.getElementById('userNameInput').value = '';
+            document.getElementById('userPackageSelect').value = 'A';
+            document.getElementById('userSessionsInput').value = 8;
+            document.getElementById('userModal').style.display = 'flex';
+        }
+
+        // 打开编辑用户模态框
+        function openEditUserModal(user) {
+            document.getElementById('modalTitle').innerText = '编辑用户';
+            document.getElementById('userIdInput').value = user.id;
+            document.getElementById('userPhoneInput').value = user.phone;
+            document.getElementById('userPhoneInput').readOnly = true; // 编辑时手机号不能改
+            document.getElementById('userNameInput').value = user.name;
+            document.getElementById('userPackageSelect').value = user.package_type || 'A';
+            document.getElementById('userSessionsInput').value = user.remaining_sessions;
+            document.getElementById('userModal').style.display = 'flex';
+        }
+
+        function closeUserModal() {
+            document.getElementById('userModal').style.display = 'none';
+            document.getElementById('userPhoneInput').readOnly = false; // 解锁
+        }
+
+        // 保存用户（核心逻辑）
+        async function saveUser() {
+            const userId = document.getElementById('userIdInput').value;
+            const phone = document.getElementById('userPhoneInput').value.trim();
+            const name = document.getElementById('userNameInput').value.trim();
+            const package_type = document.getElementById('userPackageSelect').value;
+            const remaining_sessions = parseInt(document.getElementById('userSessionsInput').value);
+            const total_sessions = remaining_sessions; // 编辑时暂时不动总次数，或者手动改，这里简化处理
+
+            if (!phone || !name) {
+                alert('请填写完整信息！');
+                return;
+            }
+
+            try {
+                if (userId) {
+                    // --- 编辑模式 ---
+                    const { error } = await supabaseClient
+                        .from('users')
+                        .update({ name, package_type, remaining_sessions })
+                        .eq('id', userId);
+                    if (error) throw error;
+                    alert('更新成功！');
+                } else {
+                    // --- 新增模式 ---
+                    
+                    // 1. 检查手机号格式
+                    if (phone.length !== 11) {
+                        alert('请输入11位正确的手机号！');
+                        return;
+                    }
+
+                    // 2. 调用 Supabase Admin API 自动创建 Auth 用户
+                    const createResp = await fetch(`${CONFIG.SUPABASE_URL}/auth/v1/admin/users`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'apikey': CONFIG.SUPABASE_SERVICE_KEY,
+                            'Authorization': `Bearer ${CONFIG.SUPABASE_SERVICE_KEY}`
+                        },
+                        body: JSON.stringify({
+                            email: phone + '@phone.local',
+                            email_confirm: true,
+                            password: phone.slice(-4),
+                            user_metadata: { name: name, phone: phone }
+                        })
+                    });
+
+                    const createData = await createResp.json();
+
+                    if (!createResp.ok) {
+                        const msg = createData.msg || createData.message || JSON.stringify(createData);
+                        if (msg.includes('already') || msg.includes('duplicate') || createResp.status === 422) {
+                            alert('错误：该手机号已存在 Auth 用户！');
+                        } else {
+                            alert('创建登录账号失败：' + msg);
+                        }
+                        return;
+                    }
+
+                    const authId = createData.id;
+
+                    // 3. 正式插入数据库
+                    const { error } = await supabaseClient
+                        .from('users')
+                        .insert({
+                            id: authId,
+                            phone: phone,
+                            name: name,
+                            package_type: package_type,
+                            remaining_sessions: remaining_sessions,
+                            total_sessions: total_sessions
+                        });
+
+                    if (error) {
+                        console.error(error);
+                        if (error.message.includes('duplicate')) {
+                            alert('错误：这个ID或者手机号已经存在了！请检查是否重复添加。');
+                        } else {
+                            alert('保存失败：' + error.message);
+                        }
+                        return;
+                    }
+                    
+                    alert(`新增用户成功！🎉\n默认登录密码：${phone.slice(-4)}（手机号后4位）`);
+                }
+
+                closeUserModal();
+                loadUsers();
+
+            } catch (e) {
+                alert('错误：' + e.message);
+            }
+        }
+
+        // ================= 导出Excel逻辑 (纵轴时间，横轴日期) =================
+        async function exportWeeklyExcel() {
+            // 1. 获取本周的日期范围
+            const today = new Date();
+            const day = today.getDay();
+            const diff = today.getDate() - day + (day === 0 ? -6 : 1);
+            const monday = new Date(today);
+            monday.setDate(diff);
+            monday.setHours(0,0,0,0);
+
+            const weekDates = [];
+            const weekDateStrings = [];
+            const weekDateKeys = []; // YYYY-MM-DD 格式，用于查库
+            for (let i = 0; i < 7; i++) {
+                const d = new Date(monday);
+                d.setDate(monday.getDate() + i);
+                weekDates.push(d);
+                const yyyy = d.getFullYear();
+                const m = (d.getMonth() + 1).toString().padStart(2, '0');
+                const dayNum = d.getDate().toString().padStart(2, '0');
+                weekDateKeys.push(`${yyyy}-${m}-${dayNum}`);
+                const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
+                weekDateStrings.push(`${m}-${dayNum} (周${weekDays[d.getDay()]})`);
+            }
+
+            // 2. 查询本周所有预约
+            const { data, error } = await supabaseClient
+                .from('appointments')
+                .select('appointment_date, time_slot, user_name, user_phone, session_index, status')
+                .in('appointment_date', weekDateKeys)
+                .neq('status', 'cancelled');
+
+            if (error) {
+                alert('查询数据失败：' + error.message);
+                return;
+            }
+
+            // 3. 建索引：每条预约拆分成各格 { "2026-03-06_11:00": apt }
+            const aptMap = {};
+            if (data) data.forEach(a => {
+                a.time_slot.split('+').forEach(s => {
+                    aptMap[`${a.appointment_date}_${s.trim()}`] = a;
+                });
+            });
+
+            // 4. 构建表头
+            const headers = ['时段'].concat(weekDateStrings);
+
+            // 5. 构建数据行
+            const rows = [];
+            TIME_SLOTS.forEach(slot => {
+                const row = [`${slot}-${slotEndTime(slot)}`];
+                weekDateKeys.forEach(() => row.push(''));
+                rows.push(row);
+            });
+
+            // 6. 填入预约数据
+            const wsData = [headers].concat(rows);
+            const merges = []; // 需要合并的单元格
+
+            weekDateKeys.forEach((dateKey, colIdx) => {
+                const processedApts = new Set();
+                TIME_SLOTS.forEach((slot, rowIdx) => {
+                    const apt = aptMap[`${dateKey}_${slot}`];
+                    if (!apt) return;
+                    const aptKey = `${dateKey}_${apt.time_slot}`;
+                    if (processedApts.has(aptKey)) return;
+                    processedApts.add(aptKey);
+
+                    const slots = apt.time_slot.split('+');
+                    const cellContent = `${apt.user_name} [${apt.session_index}]`;
+                    const excelRow = rowIdx + 1; // +1 因为第0行是表头
+                    const excelCol = colIdx + 1; // +1 因为第0列是时段
+
+                    wsData[excelRow][excelCol] = cellContent;
+
+                    // 如果是两格（1小时），合并单元格
+                    if (slots.length === 2) {
+                        merges.push({
+                            s: { r: excelRow, c: excelCol },
+                            e: { r: excelRow + 1, c: excelCol }
+                        });
+                    }
+                });
+            });
+
+            // 7. 创建工作簿
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.aoa_to_sheet(wsData);
+            ws['!merges'] = merges;
+
+            // 合并单元格居中
+            merges.forEach(m => {
+                const cellAddr = XLSX.utils.encode_cell({ r: m.s.r, c: m.s.c });
+                if (ws[cellAddr]) {
+                    ws[cellAddr].s = {
+                        alignment: { vertical: 'center', horizontal: 'center', wrapText: true }
+                    };
+                }
+            });
+            ws['!cols'] = [
+                { wch: 15 },
+                { wch: 18 }, { wch: 18 }, { wch: 18 },
+                { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }
+            ];
+
+            XLSX.utils.book_append_sheet(wb, ws, '本周预约表');
+            XLSX.writeFile(wb, `康复预约表_本周.xlsx`);
+            alert('导出成功！');
+        }
+    </script>
+</body>
+</html>
