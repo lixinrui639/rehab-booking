@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>639康复中心自助预约</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+    <script>
+const CONFIG = {
+    SUPABASE_URL: 'https://unwtfmhaoextwuszyqwf.supabase.co',
+    SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVud3RmbWhhb2V4dHd1c3p5cXdmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI0MzczOTcsImV4cCI6MjA4ODAxMzM5N30.M_X0VHZmFkgdjy6RBua0E6mFPeesDUFXDSbgBZsjPAM',
+    SUPABASE_SERVICE_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVud3RmbWhhb2V4dHd1c3p5cXdmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjQzNzM5NywiZXhwIjoyMDg4MDEzMzk3fQ.29VJRu3gGfAxI6IRi6uCv-mjId6myEDTQcGg-dAMDH0',
+    CANCEL_MIN_HOURS: 6,
+    MONTHLY_CANCEL_LIMIT: 3,
+    BUSINESS_START: 11,   // 11:00
+    BUSINESS_END: 21,     // 21:00 (最后时段 20:30-21:00)
+    // 生成30分钟时间格列表
+    getSlots: function() {
+        const slots = [];
+        for (let h = this.BUSINESS_START; h < this.BUSINESS_END; h++) {
+            slots.push(`${String(h).padStart(2,'0')}:00`);
+            slots.push(`${String(h).padStart(2,'0')}:30`);
+        }
+        return slots; // ['11:00','11:30','12:00',...,'20:30']
+    }
+};
+    </script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f3f4f6; }
+        .slot-free  { background: linear-gradient(135deg,#10b981,#059669); color:white; border:none; }
+        .slot-booked{ background:#9ca3af; color:white; cursor:not-allowed; opacity:0.7; }
+        .slot-sel-1 { background: linear-gradient(135deg,#3b82f6,#2563eb); color:white; }
+        .slot-sel-2 { background: linear-gradient(135deg,#6366f1,#4338ca); color:white; }
+        .tab-active { border-bottom:3px solid #3b82f6; color:#3b82f6; font-weight:600; }
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+    </style>
+</head>
+<body class="min-h-screen pb-24">
+
+<header class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white sticky top-0 z-50 shadow-lg">
+    <div class="max-w-lg mx-auto px-4 pt-4 pb-2 flex justify-between items-center">
+        <h1 class="text-xl font-bold">🏥 639康复中心预约</h1>
+        <button id="logoutBtn" class="hidden px-3 py-1 bg-white/20 rounded-lg text-sm hover:bg-white/30 transition" onclick="logout()">退出</button>
+    </div>
+    <div id="storeInfoBar" class="hidden max-w-lg mx-auto px-4 pb-3">
+        <div class="bg-white/10 rounded-xl px-3 py-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-white/90">
+            <span id="storeAddress"></span>
+            <span id="storePhone"></span>
+            <span id="storeHours"></span>
+        </div>
+    </div>
+</header>
+
+<main class="max-w-lg mx-auto p-4">
+
+    <!-- ===== 登录/注册 视图 ===== -->
+    <div id="authView" class="fade-in">
+        <div class="bg-white rounded-2xl shadow-xl p-6 mt-8">
+            <div class="text-center mb-6">
+                <div class="text-5xl mb-3">🏥</div>
+                <h2 class="text-2xl font-bold text-gray-800">639康复中心预约</h2>
+            </div>
+
+            <!-- 切换Tab -->
+            <div class="flex bg-gray-100 rounded-xl p-1 mb-6">
+                <button id="tabLogin" onclick="switchAuthTab('login')"
+                    class="flex-1 py-2 rounded-lg text-sm font-medium transition bg-white shadow text-indigo-600">登录</button>
+                <button id="tabRegister" onclick="switchAuthTab('register')"
+                    class="flex-1 py-2 rounded-lg text-sm font-medium transition text-gray-500">注册新用户</button>
+            </div>
+
+            <!-- 登录表单 -->
+            <div id="loginForm" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">手机号</label>
+                    <input type="tel" id="loginPhone" placeholder="请输入手机号" maxlength="11"
+                        class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">密码</label>
+                    <input type="password" id="loginPassword" placeholder="默认密码为手机号后4位"
+                        class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition">
+                </div>
+                <button id="loginBtn" onclick="doLogin()"
+                    class="w-full py-3 bg-indigo-600 text-white rounded-xl font-semibold shadow-lg hover:bg-indigo-700 transition active:scale-95">
+                    登录
+                </button>
+            </div>
+
+            <!-- 注册表单 -->
+            <div id="registerForm" class="space-y-4 hidden">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">姓名或昵称</label>
+                    <input type="text" id="regName" placeholder="真实姓名或便于识别的称呼均可" maxlength="20"
+                        class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">手机号 <span class="text-red-500">*</span></label>
+                    <input type="tel" id="regPhone" placeholder="请输入手机号" maxlength="11"
+                        class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition">
+                </div>
+                <div class="bg-indigo-50 rounded-xl p-3 text-sm text-indigo-700">
+                    📌 注册后默认密码为手机号后4位，拥有1次免费评估课时（30分钟）
+                </div>
+                <button id="registerBtn" onclick="doRegister()"
+                    class="w-full py-3 bg-green-600 text-white rounded-xl font-semibold shadow-lg hover:bg-green-700 transition active:scale-95">
+                    立即注册
+                </button>
+            </div>
+        </div>
+        <p class="text-center text-gray-400 text-xs mt-4">仅限已登记用户使用</p>
+
+        <!-- 公告通知：仅在登录界面底部显示 -->
+        <div id="loginNotice" class="hidden mt-4 bg-yellow-50 border border-yellow-200 rounded-xl px-4 py-3 text-sm text-yellow-800 text-center shadow-sm">
+            <span class="font-medium">📢 公告：</span><span id="loginNoticeText"></span>
+        </div>
+    </div>
+
+    <!-- ===== 主界面 ===== -->
+    <div id="mainView" class="hidden fade-in">
+
+        <!-- 用户信息卡 -->
+        <div id="userInfoCard" class="bg-white rounded-2xl shadow-md p-5 mb-4 border-l-4 border-indigo-500">
+            <div class="flex justify-between items-start">
+                <div>
+                    <h3 class="text-lg font-bold text-gray-800" id="uName">--</h3>
+                    <p class="text-gray-500 text-sm" id="uPhone">--</p>
+                </div>
+                <div class="text-right">
+                    <div class="text-2xl font-bold text-indigo-600" id="uRemain">0</div>
+                    <div class="text-xs text-gray-500" id="uRemainLabel">剩余课时</div>
+                    <div class="mt-1 text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full inline-block" id="uPackage">--</div>
+                </div>
+            </div>
+            <div class="mt-3 pt-3 border-t border-gray-100 flex justify-between text-sm">
+                <div class="text-orange-600">本月取消: <span id="uCancelUsed">0</span> / <span id="uCancelLimit">3</span></div>
+            </div>
+        </div>
+
+        <!-- Tab切换 -->
+        <div class="flex bg-white rounded-xl shadow-sm mb-4 overflow-hidden">
+            <button id="tabBooking" onclick="switchMainTab('booking')" class="flex-1 py-3 text-center tab-active transition">预约课程</button>
+            <button id="tabHistory" onclick="switchMainTab('history')" class="flex-1 py-3 text-center text-gray-500 transition">我的预约</button>
+        </div>
+
+        <!-- 预约面板 -->
+        <div id="bookingPanel" class="fade-in">
+            <div class="bg-white rounded-xl shadow-sm p-4 mb-4">
+                <h4 class="font-bold text-gray-700 mb-3">📅 选择日期</h4>
+                <div id="datePicker" class="flex gap-2 overflow-x-auto pb-2"></div>
+            </div>
+            <div class="bg-white rounded-xl shadow-sm p-4">
+                <div class="flex justify-between items-center mb-3">
+                    <h4 class="font-bold text-gray-700">🕐 选择时段</h4>
+                    <span id="slotHint" class="text-xs text-gray-400"></span>
+                </div>
+                <div id="slotContainer" class="grid grid-cols-4 gap-2"></div>
+                <div id="selectedInfo" class="hidden mt-4 p-3 bg-indigo-50 rounded-xl text-sm text-indigo-700"></div>
+                <div id="remarkBox" class="hidden mt-3">
+                    <textarea id="bookingRemark" placeholder="备注（可选，如特殊需求或说明）" rows="2" maxlength="100"
+                        class="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 outline-none focus:ring-2 focus:ring-indigo-400 resize-none"></textarea>
+                </div>
+                <button id="confirmBtn" onclick="submitBooking()" disabled
+                    class="w-full mt-4 py-3 bg-gray-300 text-gray-500 rounded-xl font-bold transition cursor-not-allowed">
+                    请先选择时段
+                </button>
+            </div>
+        </div>
+
+        <!-- 历史面板 -->
+        <div id="historyPanel" class="hidden fade-in space-y-3">
+            <div id="historyList"></div>
+            <div id="emptyHistory" class="text-center py-10 text-gray-400 hidden">暂无预约记录</div>
+        </div>
+    </div>
+</main>
+
+<!-- Toast -->
+<div id="toast" class="fixed top-20 left-1/2 -translate-x-1/2 bg-gray-800 text-white px-6 py-3 rounded-full shadow-2xl z-50 hidden">
+    <span id="toastMsg"></span>
+</div>
+
+<!-- 自定义确认弹窗 -->
+<div id="confirmModal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+        <p id="confirmMsg" class="text-gray-800 text-base text-center mb-6 leading-relaxed"></p>
+        <div class="flex gap-3">
+            <button id="confirmCancelBtn" class="flex-1 py-3 border border-gray-300 rounded-xl text-gray-600 font-medium">取消</button>
+            <button id="confirmOkBtn" class="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-medium">确定</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// ===== 自定义确认弹窗 =====
+function showConfirm(msg) {
+    return new Promise(resolve => {
+        document.getElementById('confirmMsg').innerText = msg;
+        const modal = document.getElementById('confirmModal');
+        modal.classList.remove('hidden');
+        const ok = document.getElementById('confirmOkBtn');
+        const cancel = document.getElementById('confirmCancelBtn');
+        const cleanup = (result) => {
+            modal.classList.add('hidden');
+            ok.onclick = null;
+            cancel.onclick = null;
+            resolve(result);
+        };
+        ok.onclick = () => cleanup(true);
+        cancel.onclick = () => cleanup(false);
+    });
+}
+
+// ===== 全局变量 =====
+let supabaseClient = null;
+let currentUser = null;
+let userProfile = null;
+let selectedDate = null;
+let selectedSlots = [];   // 新用户最多1格，老用户最多2格
+let bookedSet = new Set(); // 当天已被占用的时间格
+
+const ALL_SLOTS = CONFIG.getSlots(); // ['11:00','11:30',...]
+
+// ===== 初始化 =====
+document.addEventListener('DOMContentLoaded', async () => {
+    supabaseClient = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+
+    // 页面加载时立即获取公告，在登录页底部显示
+    loadLoginNotice();
+
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (session) {
+        currentUser = session.user;
+        await loadUserProfile();
+    }
+});
+
+// ===== 加载登录页公告通知 =====
+async function loadLoginNotice() {
+    try {
+        const { data } = await supabaseClient.from('store_info').select('notice').eq('id', 1).single();
+        if (data && data.notice && data.notice.trim()) {
+            document.getElementById('loginNoticeText').innerText = data.notice;
+            document.getElementById('loginNotice').classList.remove('hidden');
+        }
+    } catch(e) {
+        // 静默失败，不影响页面使用
+    }
+}
+
+// ===== 工具函数 =====
+function isNewUser(profile) {
+    return profile.package_type === 'EVAL';
+}
+
+function showToast(msg) {
+    const t = document.getElementById('toast');
+    document.getElementById('toastMsg').innerText = msg;
+    t.classList.remove('hidden');
+    setTimeout(() => t.classList.add('hidden'), 2500);
+}
+
+function showLoading(btnId, loading, text='处理中...') {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+    if (loading) { btn.disabled=true; btn._old=btn.innerText; btn.innerText=text; }
+    else { btn.disabled=false; if(btn._old) btn.innerText=btn._old; }
+}
+
+// ===== 认证相关 =====
+function switchAuthTab(tab) {
+    const isLogin = tab === 'login';
+    document.getElementById('loginForm').classList.toggle('hidden', !isLogin);
+    document.getElementById('registerForm').classList.toggle('hidden', isLogin);
+    document.getElementById('tabLogin').className = `flex-1 py-2 rounded-lg text-sm font-medium transition ${isLogin ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`;
+    document.getElementById('tabRegister').className = `flex-1 py-2 rounded-lg text-sm font-medium transition ${!isLogin ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`;
+}
+
+async function doLogin() {
+    const phone = document.getElementById('loginPhone').value.trim();
+    const password = document.getElementById('loginPassword').value;
+    if (!phone || phone.length !== 11) { showToast('请输入正确的手机号'); return; }
+    if (!password) { showToast('请输入密码'); return; }
+
+    showLoading('loginBtn', true, '登录中...');
+    try {
+        const { data, error } = await supabaseClient.auth.signInWithPassword({
+            email: phone + '@phone.local',
+            password
+        });
+        if (error) { showToast('手机号或密码错误'); return; }
+        currentUser = data.user;
+        await loadUserProfile();
+    } catch(e) {
+        showToast('登录失败，请重试');
+    } finally {
+        showLoading('loginBtn', false);
+    }
+}
+
+async function doRegister() {
+    const name = document.getElementById('regName').value.trim();
+    const phone = document.getElementById('regPhone').value.trim();
+    if (!name) { showToast('请输入姓名'); return; }
+    if (!phone || phone.length !== 11 || !/^1\d{10}$/.test(phone)) { showToast('请输入正确的手机号'); return; }
+
+    showLoading('registerBtn', true, '注册中...');
+    try {
+        // 1. 用 service key 创建 Auth 账号
+        const resp = await fetch(`${CONFIG.SUPABASE_URL}/auth/v1/admin/users`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'apikey': CONFIG.SUPABASE_SERVICE_KEY,
+                'Authorization': `Bearer ${CONFIG.SUPABASE_SERVICE_KEY}`
+            },
+            body: JSON.stringify({
+                email: phone + '@phone.local',
+                email_confirm: true,
+                password: phone.slice(-4),
+                user_metadata: { name, phone }
+            })
+        });
+        const created = await resp.json();
+        if (!resp.ok) {
+            if (resp.status === 422) { showToast('该手机号已注册，请直接登录'); return; }
+            throw new Error(created.msg || '注册失败');
+        }
+
+        // 2. 写入 users 表，新用户 package_type='EVAL'，次数=1
+        const { error: dbErr } = await supabaseClient.from('users').insert({
+            id: created.id,
+            phone,
+            name,
+            package_type: 'EVAL',
+            total_sessions: 1,
+            remaining_sessions: 1,
+            used_session_indices: []
+        });
+        if (dbErr) throw dbErr;
+
+        showToast('注册成功！请用手机号后4位登录');
+        switchAuthTab('login');
+        document.getElementById('loginPhone').value = phone;
+        document.getElementById('loginPassword').value = '';
+
+    } catch(e) {
+        showToast(e.message || '注册失败，请重试');
+    } finally {
+        showLoading('registerBtn', false);
+    }
+}
+
+async function loadUserProfile() {
+    const { data, error } = await supabaseClient
+        .from('users').select('*').eq('id', currentUser.id).single();
+    if (error || !data) { showToast('加载用户信息失败'); return; }
+    userProfile = data;
+    enterMainUI();
+}
+
+async function logout() {
+    await supabaseClient.auth.signOut();
+    location.reload();
+}
+
+// ===== 主界面 =====
+function enterMainUI() {
+    document.getElementById('authView').classList.add('hidden');
+    document.getElementById('mainView').classList.remove('hidden');
+    document.getElementById('logoutBtn').classList.remove('hidden');
+    renderUserInfo();
+    initDatePicker();
+    loadCancelCount();
+    loadStoreInfo();
+}
+
+function renderUserInfo() {
+    document.getElementById('uName').innerText = userProfile.name;
+    document.getElementById('uPhone').innerText = userProfile.phone;
+    document.getElementById('uRemain').innerText = userProfile.remaining_sessions;
+    if (isNewUser(userProfile)) {
+        document.getElementById('uRemainLabel').innerText = '评估次数';
+        document.getElementById('uPackage').innerText = '首次评估';
+    } else {
+        document.getElementById('uRemainLabel').innerText = '剩余课时';
+        document.getElementById('uPackage').innerText = `套餐${userProfile.package_type}`;
+    }
+}
+
+function switchMainTab(tab) {
+    const isBooking = tab === 'booking';
+    document.getElementById('bookingPanel').classList.toggle('hidden', !isBooking);
+    document.getElementById('historyPanel').classList.toggle('hidden', isBooking);
+    document.getElementById('tabBooking').className = `flex-1 py-3 text-center transition ${isBooking ? 'tab-active' : 'text-gray-500'}`;
+    document.getElementById('tabHistory').className = `flex-1 py-3 text-center transition ${!isBooking ? 'tab-active' : 'text-gray-500'}`;
+    if (!isBooking) loadHistory();
+}
+
+// ===== 日期选择 =====
+function initDatePicker() {
+    const container = document.getElementById('datePicker');
+    container.innerHTML = '';
+    const today = new Date();
+    for (let i = 0; i < 7; i++) {
+        const d = new Date(today);
+        d.setDate(today.getDate() + i);
+        const dateStr = d.toISOString().split('T')[0];
+        const btn = document.createElement('button');
+        btn.className = `flex-shrink-0 w-14 h-18 rounded-xl flex flex-col items-center justify-center p-2 transition border-2 ${i===0?'border-indigo-500 bg-indigo-50 text-indigo-700':'border-transparent bg-gray-50 text-gray-700'}`;
+        btn.innerHTML = `<span class="text-xs text-gray-400">${i===0?'今天':['日','一','二','三','四','五','六'][d.getDay()]}</span><span class="text-lg font-bold">${d.getDate()}</span><span class="text-xs">${d.getMonth()+1}月</span>`;
+        btn.onclick = () => selectDate(dateStr, btn);
+        container.appendChild(btn);
+        if (i === 0) selectDate(dateStr, btn);
+    }
+}
+
+async function selectDate(dateStr, btnEl) {
+    document.querySelectorAll('#datePicker button').forEach(b => {
+        b.className = 'flex-shrink-0 w-14 h-18 rounded-xl flex flex-col items-center justify-center p-2 transition border-2 border-transparent bg-gray-50 text-gray-700';
+    });
+    btnEl.className = 'flex-shrink-0 w-14 h-18 rounded-xl flex flex-col items-center justify-center p-2 transition border-2 border-indigo-500 bg-indigo-50 text-indigo-700';
+    selectedDate = dateStr;
+    selectedSlots = [];
+    updateConfirmBtn();
+    await loadSlots(dateStr);
+}
+
+// ===== 时段加载 =====
+async function loadSlots(dateStr) {
+    const container = document.getElementById('slotContainer');
+    container.innerHTML = '<div class="col-span-4 text-center py-4 text-gray-400">加载中...</div>';
+
+    // 查询当天已预约时段 + 时段配置
+    const [aptRes, cfgRes] = await Promise.all([
+        supabaseClient.from('appointments').select('time_slot').eq('appointment_date', dateStr).neq('status', 'cancelled'),
+        supabaseClient.from('slot_config').select('slot, max_capacity, is_active')
+    ]);
+
+    // 统计每格预约数量
+    const slotCount = {};
+    if (aptRes.data) aptRes.data.forEach(a => {
+        a.time_slot.split('+').forEach(s => {
+            const k = s.trim();
+            slotCount[k] = (slotCount[k] || 0) + 1;
+        });
+    });
+
+    // 时段配置映射
+    const slotCfg = {};
+    if (cfgRes.data) cfgRes.data.forEach(c => { slotCfg[c.slot] = c; });
+
+    bookedSet = new Set();
+    Object.entries(slotCount).forEach(([slot, cnt]) => {
+        const cfg = slotCfg[slot];
+        const cap = cfg ? cfg.max_capacity : 1;
+        if (cnt >= cap) bookedSet.add(slot);
+    });
+    // 关闭的时段也标为已满
+    Object.entries(slotCfg).forEach(([slot, cfg]) => {
+        if (!cfg.is_active) bookedSet.add(slot);
+    });
+
+    const nowHour = new Date().getHours();
+    const nowMin = new Date().getMinutes();
+    const isToday = dateStr === new Date().toISOString().split('T')[0];
+    const isNew = isNewUser(userProfile);
+
+    // 提示语
+    document.getElementById('slotHint').innerText = isNew ? '评估课：选1格（30分钟）' : '疗程课：点选开始时间，自动预约连续1小时';
+
+    container.innerHTML = '';
+    ALL_SLOTS.forEach(slot => {
+        const [h, m] = slot.split(':').map(Number);
+        const isPast = isToday && (h < nowHour || (h === nowHour && m <= nowMin));
+        const isBooked = bookedSet.has(slot);
+
+        const btn = document.createElement('button');
+        btn.dataset.slot = slot;
+        btn.className = 'py-2 rounded-lg text-xs font-medium transition ';
+
+        if (isPast || isBooked) {
+            btn.className += isPast ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'slot-booked';
+            btn.disabled = true;
+            btn.innerText = slot;
+        } else {
+            btn.className += 'slot-free hover:opacity-90 active:scale-95';
+            btn.innerText = slot;
+            btn.onclick = () => selectSlot(slot, btn);
+        }
+        container.appendChild(btn);
+    });
+}
+
+// ===== 时段选择逻辑 =====
+function selectSlot(slot, btnEl) {
+    const isNew = isNewUser(userProfile);
+
+    if (isNew) {
+        // 新用户：只能选1格
+        clearSlotSelection();
+        selectedSlots = [slot];
+        btnEl.className = 'py-2 rounded-lg text-xs font-medium transition slot-sel-1';
+    } else {
+        // 老用户：点第一格后自动选中下一格
+        clearSlotSelection();
+        const firstIdx = ALL_SLOTS.indexOf(slot);
+        const nextSlot = ALL_SLOTS[firstIdx + 1];
+
+        if (!nextSlot) {
+            showToast('该时段无法预约（没有连续下一格）');
+            return;
+        }
+        if (bookedSet.has(nextSlot)) {
+            showToast('连续时段已被占用，请选其他时间');
+            return;
+        }
+
+        selectedSlots = [slot, nextSlot];
+
+        // 高亮两格
+        document.querySelectorAll('#slotContainer button').forEach(b => {
+            if (b.dataset.slot === slot) b.className = 'py-2 rounded-lg text-xs font-medium transition slot-sel-1';
+            if (b.dataset.slot === nextSlot) b.className = 'py-2 rounded-lg text-xs font-medium transition slot-sel-2';
+        });
+    }
+    updateConfirmBtn();
+}
+
+function clearSlotSelection() {
+    document.querySelectorAll('#slotContainer button').forEach(b => {
+        if (!b.disabled && (b.classList.contains('slot-sel-1') || b.classList.contains('slot-sel-2'))) {
+            b.className = 'py-2 rounded-lg text-xs font-medium transition slot-free hover:opacity-90 active:scale-95';
+        }
+    });
+}
+
+function updateConfirmBtn() {
+    const btn = document.getElementById('confirmBtn');
+    const info = document.getElementById('selectedInfo');
+    const isNew = isNewUser(userProfile);
+    const ready = isNew ? selectedSlots.length === 1 : selectedSlots.length === 2;
+
+    const remarkBox = document.getElementById('remarkBox');
+    if (ready) {
+        if (remarkBox) remarkBox.classList.remove('hidden');
+        const timeStr = isNew
+            ? `${selectedSlots[0]} - ${nextSlotTime(selectedSlots[0])}`
+            : `${selectedSlots[0]} - ${nextSlotTime(selectedSlots[1])}`;
+        info.classList.remove('hidden');
+        info.innerHTML = `✅ 已选：<b>${timeStr}</b>（${isNew ? '30' : '60'}分钟）`;
+        btn.disabled = false;
+        btn.className = 'w-full mt-4 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl font-bold shadow-lg transition cursor-pointer';
+        btn.innerText = `确认预约 ${timeStr}`;
+    } else {
+        if (remarkBox) remarkBox.classList.add('hidden');
+        info.classList.add('hidden');
+        btn.disabled = true;
+        btn.className = 'w-full mt-4 py-3 bg-gray-300 text-gray-500 rounded-xl font-bold transition cursor-not-allowed';
+        btn.innerText = isNew ? '请选择1个时段' : '请选择连续2个时段';
+    }
+}
+
+function nextSlotTime(slot) {
+    const idx = ALL_SLOTS.indexOf(slot);
+    if (idx < 0) return slot;
+    // 返回该时段结束时间（下一个格的开始时间）
+    const [h, m] = slot.split(':').map(Number);
+    const totalMin = h * 60 + m + 30;
+    return `${String(Math.floor(totalMin/60)).padStart(2,'0')}:${String(totalMin%60).padStart(2,'0')}`;
+}
+
+// ===== 提交预约 =====
+async function submitBooking() {
+    if (!selectedDate || selectedSlots.length === 0 || !userProfile) return;
+    if (userProfile.remaining_sessions <= 0) { showToast('课时不足，请联系工作人员'); return; }
+
+    const isNew = isNewUser(userProfile);
+    if (!isNew && selectedSlots.length < 2) { showToast('请选择连续两个时段'); return; }
+
+    // 生成 time_slot 字段
+    const timeSlotStr = selectedSlots.join('+');
+    // 显示时间范围
+    const displayTime = isNew
+        ? `${selectedSlots[0]}-${nextSlotTime(selectedSlots[0])}`
+        : `${selectedSlots[0]}-${nextSlotTime(selectedSlots[1])}`;
+
+    if (!await showConfirm(`确认预约 ${selectedDate} ${displayTime}？`)) return;
+
+    // 疗程用户：检查是否有未完成的预约
+    if (!isNew) {
+        const now = new Date();
+        const { data: pending } = await supabaseClient
+            .from('appointments')
+            .select('appointment_date, time_slot')
+            .eq('user_id', userProfile.id)
+            .eq('status', 'pending');
+        if (pending && pending.length > 0) {
+            // 检查是否有还未结束的预约
+            const hasUnfinished = pending.some(apt => {
+                const slots = apt.time_slot.split('+').map(s => s.trim());
+                const endSlot = slots[slots.length - 1];
+                const [h, m] = endSlot.split(':').map(Number);
+                const total = h * 60 + m + 30;
+                const endTime = new Date(`${apt.appointment_date} ${String(Math.floor(total/60)).padStart(2,'0')}:${String(total%60).padStart(2,'0')}:00`);
+                return now < endTime;
+            });
+            if (hasUnfinished) {
+                showToast('您有未完成的课程，请完成后再预约');
+                return;
+            }
+        }
+    }
+
+    // 生成 session_index
+    const pkgType = userProfile.package_type;
+    const usedIndices = userProfile.used_session_indices || [];
+    const totalSessions = userProfile.total_sessions;
+    let nextIndex = 1;
+    for (let i = 1; i <= totalSessions + 10; i++) {
+        if (!usedIndices.includes(`${pkgType}${i}`)) { nextIndex = i; break; }
+    }
+    const sessionIndexStr = `${pkgType}${nextIndex}`;
+
+    showLoading('confirmBtn', true, '提交中...');
+    try {
+        // 检查时段是否被占用（防并发）
+        for (const s of selectedSlots) {
+            if (bookedSet.has(s)) throw new Error('手慢了，该时段已被预约');
+        }
+
+        const remarkVal = (document.getElementById('bookingRemark')?.value || '').trim();
+        const { error: insErr } = await supabaseClient.from('appointments').insert({
+            user_id: userProfile.id,
+            user_name: userProfile.name,
+            user_phone: userProfile.phone,
+            appointment_date: selectedDate,
+            time_slot: timeSlotStr,
+            status: 'pending',
+            package_type: pkgType,
+            session_index: sessionIndexStr,
+            user_remark: remarkVal
+        });
+        if (insErr) {
+            if (insErr.code === '23505') throw new Error('手慢了，该时段已被预约');
+            throw insErr;
+        }
+
+        // 扣次数
+        const newRemaining = userProfile.remaining_sessions - 1;
+        const newUsed = [...usedIndices, sessionIndexStr];
+        await supabaseClient.from('users').update({
+            remaining_sessions: newRemaining,
+            used_session_indices: newUsed
+        }).eq('id', userProfile.id);
+
+        userProfile.remaining_sessions = newRemaining;
+        userProfile.used_session_indices = newUsed;
+        renderUserInfo();
+        selectedSlots = [];
+        if (document.getElementById('bookingRemark')) document.getElementById('bookingRemark').value = '';
+        showToast('预约成功！');
+        await loadSlots(selectedDate);
+        updateConfirmBtn();
+
+    } catch(e) {
+        showToast(e.message || '预约失败');
+    } finally {
+        showLoading('confirmBtn', false);
+    }
+}
+
+// ===== 历史记录 =====
+async function loadHistory() {
+    if (!userProfile) return;
+    const { data } = await supabaseClient
+        .from('appointments').select('*')
+        .eq('user_id', userProfile.id)
+        .order('appointment_date', { ascending: false });
+
+    const container = document.getElementById('historyList');
+    const empty = document.getElementById('emptyHistory');
+    container.innerHTML = '';
+    if (!data || data.length === 0) { empty.classList.remove('hidden'); return; }
+    empty.classList.add('hidden');
+
+    const now = new Date();
+    data.forEach(apt => {
+        const slots = apt.time_slot.split('+');
+        const startSlot = slots[0].trim();
+        const endSlot = slots[slots.length - 1].trim();
+        const displayTime = `${startSlot}-${nextSlotTime(endSlot)}`;
+
+        const slotStart = new Date(`${apt.appointment_date} ${startSlot}:00`);
+        const slotEnd = new Date(`${apt.appointment_date} ${nextSlotTime(endSlot)}:00`);
+        const isOngoing = apt.status === 'pending' && now >= slotStart && now < slotEnd;
+        const isAutoDone = apt.status === 'pending' && now >= slotEnd;
+
+        let badge, badgeColor;
+        if (isOngoing) { badge = '🟢 进行中'; badgeColor = 'bg-yellow-100 text-yellow-700'; }
+        else if (isAutoDone || apt.status === 'completed') { badge = '已完成'; badgeColor = 'bg-green-100 text-green-700'; }
+        else if (apt.status === 'cancelled') { badge = '已取消'; badgeColor = 'bg-gray-100 text-gray-500'; }
+        else { badge = '待履约'; badgeColor = 'bg-blue-100 text-blue-700'; }
+
+        const canCancel = apt.status === 'pending' && !isOngoing && !isAutoDone
+            && ((new Date(`${apt.appointment_date} ${startSlot}:00`) - now) / 3600000 >= CONFIG.CANCEL_MIN_HOURS);
+
+        const div = document.createElement('div');
+        div.className = 'bg-white p-4 rounded-xl shadow-sm';
+        div.innerHTML = `
+            <div class="flex justify-between items-start mb-2">
+                <div>
+                    <span class="font-bold text-gray-800">${apt.appointment_date}</span>
+                    <span class="text-gray-500 ml-2 text-sm">${displayTime}</span>
+                </div>
+                <span class="text-xs px-2 py-1 rounded-full ${badgeColor}">${badge}</span>
+            </div>
+            <div class="flex justify-between items-center text-sm text-gray-600">
+                <span class="bg-purple-50 text-purple-600 px-2 py-0.5 rounded border border-purple-100">${apt.session_index}</span>
+                ${canCancel ? `<button onclick="cancelAppointment('${apt.id}','${apt.appointment_date}','${apt.time_slot}')" class="text-red-500 hover:text-red-700 font-medium">取消预约</button>` : ''}
+            </div>
+            ${apt.user_remark ? `<div class="mt-2 text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-1.5">💬 ${apt.user_remark}</div>` : ''}\``;
+        container.appendChild(div);
+    });
+}
+
+// ===== 取消预约 =====
+async function cancelAppointment(id, date, timeSlot) {
+    const countEl = document.getElementById('uCancelUsed');
+    if (parseInt(countEl.innerText) >= CONFIG.MONTHLY_CANCEL_LIMIT) { showToast('本月取消次数已达上限'); return; }
+    if (!await showConfirm('确定要取消预约？课时将返还。')) return;
+
+    try {
+        const { data: aptData } = await supabaseClient.from('appointments').select('session_index').eq('id', id).single();
+        await supabaseClient.from('appointments').update({ status: 'cancelled' }).eq('id', id);
+
+        const newRemaining = userProfile.remaining_sessions + 1;
+        const newUsed = (userProfile.used_session_indices || []).filter(i => i !== aptData.session_index);
+        await supabaseClient.from('users').update({ remaining_sessions: newRemaining, used_session_indices: newUsed }).eq('id', userProfile.id);
+
+        const now = new Date();
+        const ym = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+        const { error: logErr } = await supabaseClient.from('operation_logs').insert({ user_id: userProfile.id, operation_type: 'cancel', year_month: ym });
+        if (logErr) console.error('取消记录写入失败:', logErr);
+
+        userProfile.remaining_sessions = newRemaining;
+        userProfile.used_session_indices = newUsed;
+        renderUserInfo();
+        showToast('已取消，次数已返还');
+        loadHistory();
+        loadCancelCount();
+        if (selectedDate === date) loadSlots(selectedDate);
+    } catch(e) {
+        showToast('取消失败');
+    }
+}
+
+// ===== 门店信息（登录后仅显示地址/电话/营业时间，公告不再显示） =====
+async function loadStoreInfo() {
+    const { data } = await supabaseClient.from('store_info').select('*').eq('id', 1).single();
+    if (!data) return;
+    const bar = document.getElementById('storeInfoBar');
+    const addr = document.getElementById('storeAddress');
+    const phone = document.getElementById('storePhone');
+    const hours = document.getElementById('storeHours');
+    if (data.address) { addr.innerText = '📍 ' + data.address; }
+    if (data.phone) { phone.innerText = '📞 ' + data.phone; }
+    if (data.hours) { hours.innerText = '🕐 ' + data.hours; }
+    if (data.address || data.phone || data.hours) bar.classList.remove('hidden');
+}
+
+async function loadCancelCount() {
+    const now = new Date();
+    const ym = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    const { count } = await supabaseClient.from('operation_logs')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userProfile.id).eq('year_month', ym).eq('operation_type', 'cancel');
+    document.getElementById('uCancelUsed').innerText = count || 0;
+}
+</script>
+</body>
+</html>
